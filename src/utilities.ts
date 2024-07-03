@@ -38,12 +38,13 @@ export function logError(text: string) {
 
 export function logProductRow(product: Product) {
   const unitPriceString = product.unitPrice ? `$${product.unitPrice.toFixed(2)} /${product.unitName}` : ``;
+  const ingredientsString = ingredients.join(", ").slice(0, 30); // Adjust the slice length as needed
   log(
     getAlternatingRowColour(colour.sky, colour.white),
     `${product.id.padStart(6)} | ${product.name.slice(0, 50).padEnd(50)} | ` +
     `${product.size?.slice(0, 17).padEnd(17)} | ` +
     `$ ${product.currentPrice.toFixed(2).padStart(4).padEnd(5)} | ` +
-    unitPriceString
+    `${unitPriceString.padEnd(12)} | ${ingredientsString}`
   );
 }
 
@@ -55,11 +56,11 @@ export function logTableHeader() {
     colour.yellow,
     `${'ID'.padStart(6)} | ${'Name'.padEnd(50)} | ` +
     `${'Size'.padEnd(17)} | ` +
-    `${'Price'.padEnd(7)} | Unit Price`
+    `${'Price'.padEnd(7)} | Unit Price | ingredients`
   );
 
   let headerLine = ""
-  for (let i = 0; i < 102; i++) {
+  for (let i = 0; i < 132; i++) {
     headerLine += "-"
   }
   log(colour.yellow, headerLine);

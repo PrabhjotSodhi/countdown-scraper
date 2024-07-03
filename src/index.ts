@@ -152,6 +152,14 @@ async function scrapeAllPageURLs() {
 
       // Start nested loop which loops through each product entry
       perPageLogStats = await processFoundProductEntries(categorisedUrl, productEntries, perPageLogStats);
+      // Get product page URLs
+      const productPageUrls = productEntries.map((i, elem) => $(elem).attr('href')).get();
+      // Scrape ingredients from product pages
+      const ingredientsData = await scrapeIngredientsFromProductPages(productPageUrls);
+      // Log or process the scraped ingredients as needed
+      for (const [url, ingredients] of Object.entries(ingredientsData)) {
+        log(colour.green, `Ingredients for ${url}: ${ingredients.join(", ")}`);
+      }
 
       // After scraping every item is complete, log how many products were scraped
       if (databaseMode) {
@@ -253,6 +261,39 @@ async function processFoundProductEntries
 
   // Return log stats for completed page
   return perPageLogStats;
+}
+
+
+// scrapeIngredientsFromProductPages()
+// ---------------
+// Goes to each product page URL, scrapes the ingredients, and returns them
+async function scrapeIngredientsFromProductPages(productPageUrls: string[]): Promise<{ [url: string]: string[] }> {
+  const ingredientsData: { [url: string]: string[] } = {};
+
+  for (const url of productPageUrls) {
+    try {
+      // Go to the product page
+      await page.goto(url);
+      await page.waitForTimeout(2000); // Add a delay for page load
+
+      // Get the HTML content of the page
+      const html = await page.content();
+      const $ = cheerio.load(html);
+
+      // Scrape the ingredients from the page (assuming ingredients are in a specific selector)
+      const ingredientsList: string[] = [];
+      $('selector-for-ingredients').each((i, elem) => {
+        ingredientsList.push($(elem).text().trim());
+      });
+
+      // Add the ingredients to the results
+      ingredientsData[url] = ingredientsList;
+    } catch (error) {
+      console.error(`Error scraping ${url}:`, error);
+    }
+  }
+
+  return ingredientsData;
 }
 
 
