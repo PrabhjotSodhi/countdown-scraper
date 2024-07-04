@@ -38,7 +38,12 @@ export function logError(text: string) {
 
 export function logProductRow(product: Product) {
   const unitPriceString = product.unitPrice ? `$${product.unitPrice.toFixed(2)} /${product.unitName}` : ``;
-  const ingredientsString = ingredients.join(", ").slice(0, 30); // Adjust the slice length as needed
+  let ingredientsString = "N/A";
+  try {
+    ingredientsString = product.ingredients.join(", "); // Adjust the slice length as needed
+  } catch (e) {
+    log(colour.orange, e);
+  }
   log(
     getAlternatingRowColour(colour.sky, colour.white),
     `${product.id.padStart(6)} | ${product.name.slice(0, 50).padEnd(50)} | ` +

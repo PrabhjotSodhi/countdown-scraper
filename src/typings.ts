@@ -6,6 +6,7 @@ export interface Product {
   lastUpdated: Date;
   lastChecked: Date;
   priceHistory: DatedPrice[];
+  ingredients: string[];
   sourceSite: string;
   category: string[];
   unitPrice?: number;

@@ -149,17 +149,12 @@ async function scrapeAllPageURLs() {
         infoUpdated: 0,
         alreadyUpToDate: 0,
       }
-
-      // Start nested loop which loops through each product entry
-      perPageLogStats = await processFoundProductEntries(categorisedUrl, productEntries, perPageLogStats);
       // Get product page URLs
       const productPageUrls = productEntries.map((i, elem) => $(elem).attr('href')).get();
       // Scrape ingredients from product pages
       const ingredientsData = await scrapeIngredientsFromProductPages(productPageUrls);
-      // Log or process the scraped ingredients as needed
-      for (const [url, ingredients] of Object.entries(ingredientsData)) {
-        log(colour.green, `Ingredients for ${url}: ${ingredients.join(", ")}`);
-      }
+      // Start nested loop which loops through each product entry
+      perPageLogStats = await processFoundProductEntries(categorisedUrl, productEntries, perPageLogStats, ingredientsData);
 
       // After scraping every item is complete, log how many products were scraped
       if (databaseMode) {
@@ -204,16 +199,21 @@ async function processFoundProductEntries
       priceChanged: number;
       infoUpdated: number;
       alreadyUpToDate: number;
-    }) {
+    },
+    ingredientsData: { [url: string]: string[] }) {
 
   // Loop through each product entry
   for (let i = 0; i < productEntries.length; i++) {
     const productEntryElement = productEntries[i];
-
+    const fullProductUrl = `https://www.countdown.co.nz${productEntryElement.attribs['href']}`;
+    const ingredients = ingredientsData[fullProductUrl] || [];
     const product = playwrightElementToProduct(
       productEntryElement,
-      categorisedUrl.categories
+      categorisedUrl.categories,
+      ingredients
     );
+    //log(colour.cyan, `Ingredients URL: ${fullProductUrl}`);
+    //log(colour.cyan, `Ingredients: ${JSON.stringify(ingredientsData[fullProductUrl])}`);
 
     if (databaseMode && product !== undefined) {
       // Insert or update item into azure cosmosdb
@@ -273,7 +273,8 @@ async function scrapeIngredientsFromProductPages(productPageUrls: string[]): Pro
   for (const url of productPageUrls) {
     try {
       // Go to the product page
-      await page.goto(url);
+      const fullUrl = `https://www.countdown.co.nz${url}`;
+      await page.goto(fullUrl);
       await page.waitForTimeout(2000); // Add a delay for page load
 
       // Get the HTML content of the page
@@ -282,12 +283,27 @@ async function scrapeIngredientsFromProductPages(productPageUrls: string[]): Pro
 
       // Scrape the ingredients from the page (assuming ingredients are in a specific selector)
       const ingredientsList: string[] = [];
-      $('selector-for-ingredients').each((i, elem) => {
-        ingredientsList.push($(elem).text().trim());
-      });
-
-      // Add the ingredients to the results
-      ingredientsData[url] = ingredientsList;
+      const hasAccordion = await page.$('cdx-accordion cdx-accordion-item:nth-child(2) div div div');
+      if (hasAccordion) {
+        const ingredientsText = await page.evaluate(() => {
+          const element = document.evaluate(
+            '/html/body/wnz-content/div/wnz-product-detail/div/main/div[4]/div[2]/cdx-accordion/cdx-accordion-item[2]/div/div/div/text()',
+            document,
+            null,
+            XPathResult.STRING_TYPE,
+            null
+          ).stringValue;
+          return element;
+        });
+        if (ingredientsText) {
+          ingredientsText.split(',').forEach(ingredient => {
+            ingredientsList.push(ingredient.trim());
+          });
+        }
+        ingredientsData[fullUrl] = ingredientsList;
+      } else {
+        ingredientsData[fullUrl] = [];
+      }
     } catch (error) {
       console.error(`Error scraping ${url}:`, error);
     }
@@ -478,7 +494,8 @@ async function selectStoreByLocationName(locationName: string = "") {
 
 export function playwrightElementToProduct(
   element: cheerio.Element,
-  categories: string[]
+  categories: string[],
+  ingredients: string[]
 ): Product | undefined {
   const $ = cheerio.load(element);
 
@@ -513,6 +530,9 @@ export function playwrightElementToProduct(
 
     // Categories
     category: categories,
+
+    // Ingredients
+    ingredients: ingredients || [],
 
     // Store today's date
     lastChecked: new Date(),
