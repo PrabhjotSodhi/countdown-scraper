@@ -7,7 +7,7 @@ import * as cheerio from "cheerio";
 import _ from "lodash";
 import { setTimeout } from "timers/promises";
 
-import { establishSupabase, upsertProductToSupabase } from "./supabasedb.js";
+import { establishCosmosDB, upsertProductToCosmosDB } from "./cosmosdb.js";
 import { productOverrides } from "./product-overrides.js";
 import { CategorisedUrl, DatedPrice, Product, UpsertResponse } from "./typings";
 import {
@@ -38,8 +38,8 @@ export let uploadImagesMode = false;
 let headlessMode = true;
 categorisedUrls = await handleArguments(categorisedUrls);
 
-// Establish Supabase if being used
-if (databaseMode) establishSupabase();
+// Establish CosmosDB if being used
+if (databaseMode) establishCosmosDB();
 
 // Establish playwright browser
 let browser: playwright.Browser;
@@ -160,7 +160,7 @@ async function scrapeAllPageURLs() {
       if (databaseMode) {
         log(
           colour.blue,
-          `Supabase: ${perPageLogStats.newProducts} new products, ` +
+          `CosmosDB: ${perPageLogStats.newProducts} new products, ` +
           `${perPageLogStats.priceChanged} updated prices, ` +
           `${perPageLogStats.infoUpdated} updated info, ` +
           `${perPageLogStats.alreadyUpToDate} already up-to-date`
@@ -216,8 +216,8 @@ async function processFoundProductEntries
     //log(colour.cyan, `Ingredients: ${JSON.stringify(ingredientsData[fullProductUrl])}`);
 
     if (databaseMode && product !== undefined) {
-      // Insert or update item into supabase
-      const response = await upsertProductToSupabase(product);
+      // Insert or update item into azure cosmosdb
+      const response = await upsertProductToCosmosDB(product);
 
       // Use response to update logging counters
       switch (response) {
