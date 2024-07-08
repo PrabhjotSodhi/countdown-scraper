@@ -7,7 +7,7 @@ import * as cheerio from "cheerio";
 import _ from "lodash";
 import { setTimeout } from "timers/promises";
 
-import { establishSupabase, upsertProductToSupabase } from "./supabasedb.js";
+import { establishSupabase, upsertProductToSupabase, uploadImageToLocal } from "./supabasedb.js";
 import { productOverrides } from "./product-overrides.js";
 import { CategorisedUrl, DatedPrice, Product, UpsertResponse } from "./typings";
 import {
@@ -240,14 +240,11 @@ async function processFoundProductEntries
       // Upload image to Azure Function
       if (uploadImagesMode) {
         // Get image url using provided base url, product ID, and hi-res query parameters
-        const imageUrlBase =
-          "https://assets.woolworths.com.au/images/2010/";
-        const imageUrlExtensionAndQueryParams =
-          ".jpg?impolicy=wowcdxwbjbx&w=900&h=900";
-        const imageUrl =
-          imageUrlBase + product.id + imageUrlExtensionAndQueryParams;
+        const imageUrlBase = "https://assets.woolworths.com.au/images/2010/";
+        const imageUrlExtensionAndQueryParams = ".jpg?impolicy=wowcdxwbjbx&w=900&h=900";
+        const imageUrl = imageUrlBase + product.id + imageUrlExtensionAndQueryParams;
 
-        await uploadImageRestAPI(imageUrl!, product);
+        await uploadImageToLocal(imageUrl!, product);
       }
     } else if (!databaseMode && product !== undefined) {
       // When doing a dry run, log product name - size - price in table format
@@ -296,9 +293,23 @@ async function scrapeIngredientsFromProductPages(productPageUrls: string[]): Pro
           return element;
         });
         if (ingredientsText) {
-          ingredientsText.split(',').forEach(ingredient => {
-            ingredientsList.push(ingredient.trim());
-          });
+            let insideBracket = false;
+            let currentIngredient = '';
+            for (let i = 0; i < ingredientsText.length; i++) {
+            const char = ingredientsText[i];
+            if (char === '(') {
+              insideBracket = true;
+            } else if (char === ')') {
+              insideBracket = false;
+            }
+            if (char === ',' && !insideBracket) {
+              ingredientsList.push(currentIngredient.trim());
+              currentIngredient = '';
+            } else {
+              currentIngredient += char;
+            }
+            }
+            ingredientsList.push(currentIngredient.trim());
         }
         ingredientsData[fullUrl] = ingredientsList;
       } else {
@@ -312,59 +323,6 @@ async function scrapeIngredientsFromProductPages(productPageUrls: string[]): Pro
   return ingredientsData;
 }
 
-
-// uploadImageRestAPI()
-// --------------------
-// Send image url to an Azure Function API
-
-async function uploadImageRestAPI(
-  imgUrl: string,
-  product: Product
-): Promise<boolean> {
-  // Check if passed in url is valid, return if not
-  if (imgUrl === undefined || !imgUrl.includes("http")) {
-    log(colour.grey, `  Image ${product.id} has invalid url: ${imgUrl}`);
-    return false;
-  }
-
-  // Get IMAGE_UPLOAD_FUNC_URL from env
-  // Example format:
-  // https://<func-app>.azurewebsites.net/api/ImageToS3?code=<auth-code>
-  const funcBaseUrl = process.env.IMAGE_UPLOAD_FUNC_URL;
-
-  // Check funcBaseUrl is valid
-  if (!funcBaseUrl?.includes("http")) {
-    throw Error(
-      "\nIMAGE_UPLOAD_FUNC_URL in .env is invalid. Should be in .env :\n\n" +
-      "IMAGE_UPLOAD_FUNC_URL=https://<func-app>.azurewebsites.net/api/ImageToS3?code=<auth-code>\n\n"
-    );
-  }
-  const restUrl = `${funcBaseUrl}&destination=s3://supermarketimages/product-images/${product.id}&source=${imgUrl}`;
-
-  // Perform http get
-  var res = await fetch(new URL(restUrl), { method: "GET" });
-  var responseMsg = await (await res.blob()).text();
-
-  if (responseMsg.includes("S3 Upload of Full-Size")) {
-    // Log for successful upload
-    log(
-      colour.grey,
-      `  New Image  : ${(product.id + ".webp").padEnd(11)} | ` +
-      `${product.name.padEnd(40).slice(0, 40)}`
-    );
-  } else if (responseMsg.includes("already exists")) {
-    // Do not log for existing images
-  } else if (responseMsg.includes("Unable to download:")) {
-    // Log for missing images
-    log(colour.grey, `  Image ${product.id} unavailable to be downloaded`);
-  } else if (responseMsg.includes("unable to be processed")) {
-    log(colour.grey, `  Image ${product.id} unable to be processed`);
-  } else {
-    // Log any other errors that may have occurred
-    console.log(responseMsg);
-  }
-  return true;
-}
 
 // handleArguments()
 // -----------------

@@ -7,8 +7,11 @@ dotenv.config({ path: `.env.local`, override: true });
 import { createClient } from '@supabase/supabase-js';
 import { logError, log, colour, validCategories } from "./utilities";
 import { Product, UpsertResponse, ProductResponse } from "./typings";
+import * as fs from 'fs';
+import * as path from 'path';
 
 let supabase;
+
 
 export async function establishSupabase() {
   // Get CosmosDB connection string stored in .env
@@ -129,6 +132,97 @@ export async function upsertProductToSupabase(
   }
 }
 
+// uploadImageToSupabase()
+// ----------------
+// Uploads an image to supabase for a product
+
+export async function uploadImageToSupabase(imgUrl, product) {
+  // Check if passed in url is valid, return if not
+  if (imgUrl === undefined || !imgUrl.includes("http")) {
+    log(colour.grey, `  Image ${product.id} has invalid url: ${imgUrl}`);
+    return false;
+  }
+  try {
+    // Fetch the image from the URL
+    const response = await fetch(imgUrl);
+    if (!response.ok) {
+      log(colour.grey, `  Image ${product.id} unavailable to be downloaded`);
+      return false;
+    }
+    const imageBuffer = await response.arrayBuffer();
+
+    // Upload the image to Supabase Storage
+    const fileName = `${product.id}.jpg`;
+    const { data, error } = await supabase.storage
+      .from('product-images')
+      .upload(fileName, imageBuffer, {
+        cacheControl: '3600',
+        upsert: true,
+      });
+
+    if (error) {
+      log(colour.grey, `  Image ${product.id} unable to be processed: ${error.message}`);
+      return false;
+    }
+
+    // Log for successful upload
+    log(
+      colour.grey,
+      `  New Image  : ${fileName.padEnd(11)} | ` +
+      `${product.name.padEnd(40).slice(0, 40)}`
+    );
+
+    return true;
+  } catch (error) {
+    log(colour.grey, `  Image ${product.id} unable to be processed: ${error.message}`);
+    return false;
+  }
+}
+
+// uploadImageToLocal()
+// ----------------
+// Uploads an image to supabase for a product
+
+export async function uploadImageToLocal(imgUrl, product) {
+  // Check if passed in url is valid, return if not
+  if (imgUrl === undefined || !imgUrl.includes("http")) {
+    log(colour.grey, `  Image ${product.id} has invalid url: ${imgUrl}`);
+    return false;
+  }
+  try {
+   // Fetch the image from the URL
+  const response = await fetch(imgUrl);
+
+  if (!response.ok) {
+    log(colour.grey, `  Image ${product.id} unavailable to be downloaded`);
+    return false;
+  }
+
+  const imageBuffer = await response.arrayBuffer();
+
+  // Create images directory if it doesn't exist
+  const fileName = `${product.id}.jpg`;
+  const imagesDir = path.join(__dirname, 'images');
+  if (!fs.existsSync(imagesDir)) {
+    fs.mkdirSync(imagesDir);
+  }
+
+  // Define the file path
+  const filePath = path.join(imagesDir, fileName);
+
+  // Save the image to the local folder
+  fs.writeFileSync(filePath, new Uint8Array(imageBuffer));
+
+  // Log for successful upload
+  log(colour.grey, `  Image ${product.id} successfully downloaded and saved`);
+
+    return true;
+  } catch (error) {
+    log(colour.grey, `  Image ${product.id} unable to be processed: ${error.message}`);
+    return false;
+  }
+}
+
 // buildUpdatedProduct()
 // ---------------------
 // This takes a freshly scraped product and compares it with a found database product.
@@ -241,111 +335,3 @@ export function logIngredientChange(product: Product, newIngredients: string[]) 
   );
 }
 
-// customQuery()
-// -------------
-// Function for running custom DB queries - used primarily for debugging
-/*
-export async function customQuery(): Promise<void> {
-  const options: FeedOptions = {
-    maxItemCount: 30,
-  };
-  const secondsDelayBetweenBatches = 5;
-  const querySpec: SqlQuerySpec = {
-    query: "SELECT * FROM products p",
-  };
-
-  log(colour.yellow, "Custom Query \n" + querySpec.query);
-
-  const response = await container.items.query(querySpec, options);
-
-  let batchCount = 0;
-  const maxBatchCount = 900;
-  let continueFetching = true;
-
-  await (async () => {
-    while (response.hasMoreResults() && continueFetching) {
-      await delayedBatchFetch();
-    }
-  })();
-
-  console.log("Custom Query Complete");
-  return;
-
-  function delayedBatchFetch() {
-    return new Promise<void>((resolve) =>
-      setTimeout(async () => {
-        console.log(
-          "Batch " +
-          batchCount +
-          " - Items [" +
-          batchCount * options.maxItemCount! +
-          " - " +
-          (batchCount + 1) * options.maxItemCount!
-        ) + "]";
-
-        const batch = await response.fetchNext();
-        const products = batch.resources as Product[];
-        const items = batch.resources;
-
-        products.forEach(async (p) => {
-          let oldDatedPrice = 0;
-          let requiresUpdate = false;
-
-          p.priceHistory.forEach((datedPrice) => {
-            let newDatedPrice = datedPrice.price;
-            if (Math.abs(oldDatedPrice - newDatedPrice) < 0.04) {
-              console.log(p.name);
-              console.log(
-                " - Tiny price difference detected on " +
-                datedPrice.date.toDateString() +
-                " - " +
-                oldDatedPrice +
-                " - " +
-                newDatedPrice
-              );
-              datedPrice.price = 0;
-              requiresUpdate = true;
-            }
-            oldDatedPrice = newDatedPrice;
-          });
-
-          if (requiresUpdate) {
-            let updatedPriceHistory = p.priceHistory.filter((datedPrice) => {
-              if (datedPrice.price > 0) return true;
-              else return false;
-            });
-
-            console.log(
-              " - Old price history length: " +
-              p.priceHistory.length +
-              " - new length: " +
-              updatedPriceHistory.length
-            );
-
-            p.priceHistory = updatedPriceHistory;
-
-            const uploadRes = await container.items.upsert(p);
-            console.log(
-              " - Uploaded updated product with status code: " +
-              uploadRes.statusCode
-            );
-          }
-
-          // item.name = item.name.replace('  ', ' ').trim();
-          // let p: Product = item as Product;
-
-          // const res = await container.item(item.id, item.name).delete();
-          // console.log('delete ' + res.statusCode);
-
-          // const uploadRes = await container.items.upsert(p);
-          // console.log('upload ' + uploadRes.statusCode);
-        });
-
-        if (batchCount++ === maxBatchCount) continueFetching = false;
-
-        resolve();
-      }, secondsDelayBetweenBatches * 1000)
-    );
-  }
-}
-*/
